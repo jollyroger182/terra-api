@@ -8,6 +8,8 @@ Every request to the proxy is forwarded to the same path under `TERRA_API_URL`, 
 GET https://proxy.example/users/7?page=2  ->  GET $TERRA_API_URL/users/7?page=2
 ```
 
+Unofficial documentation for the Terra API itself is in [`docs/API.md`](docs/API.md), with an OpenAPI 3.1 spec in [`docs/openapi.yaml`](docs/openapi.yaml).
+
 ## What it does
 
 - Answers CORS preflight (`OPTIONS`) requests itself, allowing whatever method and headers the browser asks for.

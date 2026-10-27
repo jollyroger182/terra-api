@@ -1,0 +1,1290 @@
+openapi: 3.1.0
+info:
+  title: Terra API (unofficial)
+  version: 2026-10-27
+  summary: Player-facing REST API behind Hack Club's Terra.
+  description: |
+    Unofficial description of the API used by https://terra.hackclub.com, worked out from the
+    public web client and read-only requests. Response schemas are only given for endpoints whose
+    responses were observed; the rest describe requests only. Role-gated endpoints are left
+    out.
+
+    Errors use a non-2xx status and a body of `{ "error": string }`, sometimes with a `code`.
+    Responses carry IETF `RateLimit` / `RateLimit-Policy` headers (100 requests per minute, with
+    tighter limits on some auth endpoints).
+  license:
+    name: Unofficial documentation
+servers:
+  - url: https://api.terra.hackclub.com
+    description: Terra API (CORS restricted to https://terra.hackclub.com)
+  - url: https://terra-api-proxy.jollyroger182.workers.dev
+    description: CORS proxy, callable from any origin
+security:
+  - bearerAuth: []
+tags:
+  - name: Public
+  - name: Auth
+  - name: Users
+  - name: Friends
+  - name: Mail
+  - name: Referrals
+  - name: Device upgrades
+  - name: Chat
+  - name: Feedback
+  - name: Weeks
+  - name: Services
+  - name: Projects
+  - name: Shipping
+  - name: Voting
+  - name: OAuth
+
+paths:
+  /public/stats:
+    get:
+      tags: [Public]
+      summary: Player and project counts
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [users, projects]
+                properties:
+                  users: { type: integer }
+                  projects: { type: integer }
+
+  /auth/login:
+    get:
+      tags: [Auth]
+      summary: Start login through Hack Club Auth
+      description: Browser navigation. Redirects to auth.hackclub.com; the flow ends at `https://terra.hackclub.com/?code=…`.
+      security: []
+      parameters:
+        - { name: ref, in: query, schema: { type: string }, description: Referral code. }
+        - { name: email, in: query, schema: { type: string }, description: Email to prefill. }
+      responses:
+        "302": { description: Redirect to Hack Club Auth. }
+
+  /auth/exchange:
+    get:
+      tags: [Auth]
+      summary: Exchange a login code for a token
+      security: []
+      parameters:
+        - { name: code, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string, description: HS256 JWT valid for 7 days. }
+                  newUser: { type: boolean }
+        default: { $ref: "#/components/responses/Error" }
+
+  /auth/guest:
+    post:
+      tags: [Auth]
+      summary: Create a guest account
+      description: Currently disabled; returns 403.
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Current user
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user: { $ref: "#/components/schemas/Me" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /auth/logout-all:
+    post:
+      tags: [Auth]
+      summary: Revoke every token for the account
+      responses:
+        default: { description: Not observed. }
+
+  /auth/link-code:
+    post:
+      tags: [Auth]
+      summary: Get a one-time code for account-linking pages
+      description: |
+        The code is passed as `?code=` to `/auth/github/login`, `/auth/hackatime/login`,
+        `/auth/slack-chat/login` or `/auth/identity/start`, opened in a browser popup.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: string }
+
+  /auth/github/finalize:
+    post:
+      tags: [Auth]
+      summary: Finish linking GitHub
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pendingId]
+              properties:
+                pendingId: { type: string }
+      responses:
+        default: { description: Not observed. }
+
+  /auth/github/unlink:
+    delete:
+      tags: [Auth]
+      summary: Unlink GitHub
+      responses:
+        default: { description: Not observed. }
+
+  /auth/hackatime/unlink:
+    delete:
+      tags: [Auth]
+      summary: Unlink Hackatime
+      responses:
+        default: { description: Not observed. }
+
+  /auth/address:
+    get:
+      tags: [Auth]
+      summary: Linked shipping address
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AddressStatus" }
+
+  /auth/address/candidates:
+    get:
+      tags: [Auth]
+      summary: Addresses on the user's Hack Club Auth account
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  candidates: { type: array, items: {} }
+
+  /auth/address/select:
+    post:
+      tags: [Auth]
+      summary: Use one of the candidate addresses
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hackclubAddressId]
+              properties:
+                hackclubAddressId: { type: string }
+      responses:
+        default: { description: Not observed. }
+
+  /auth/identity/pending/{pendingId}:
+    get:
+      tags: [Auth]
+      summary: Identity verification in progress
+      parameters:
+        - { name: pendingId, in: path, required: true, schema: { type: string } }
+      responses:
+        default: { description: Not observed. }
+
+  /auth/identity/finalize:
+    post:
+      tags: [Auth]
+      summary: Finish identity verification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pendingId, addressId]
+              properties:
+                pendingId: { type: string }
+                addressId: { type: string }
+      responses:
+        default: { description: Not observed. }
+
+  /users/{username}/profile:
+    get:
+      tags: [Users]
+      summary: Public profile
+      parameters:
+        - $ref: "#/components/parameters/username"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+
+  /users/me/display-name:
+    get:
+      tags: [Users]
+      summary: Display name and whether it can be changed
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  displayName: { type: string }
+                  canRename: { type: boolean }
+    patch:
+      tags: [Users]
+      summary: Change display name
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [displayName]
+              properties:
+                displayName: { type: string }
+      responses:
+        default: { description: Not observed. }
+
+  /users/{username}/projects/{projectId}/timeline:
+    get:
+      tags: [Users]
+      summary: A project's devlogs and shipments
+      parameters:
+        - $ref: "#/components/parameters/username"
+        - $ref: "#/components/parameters/projectId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      title: { type: string }
+                      codeUrl: { type: [string, "null"] }
+                      demoUrl: { type: [string, "null"] }
+                  devlogs: { type: array, items: {} }
+                  shipments: { type: array, items: {} }
+
+  /users/by-project/{projectId}:
+    get:
+      tags: [Users]
+      summary: Owner of a project
+      parameters:
+        - $ref: "#/components/parameters/projectId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username: { type: string }
+
+  /friends:
+    get:
+      tags: [Friends]
+      summary: Friends and pending requests
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted: { type: array, items: { $ref: "#/components/schemas/Friend" } }
+                  pendingIncoming: { type: array, items: { $ref: "#/components/schemas/Friend" } }
+                  pendingOutgoing: { type: array, items: { $ref: "#/components/schemas/Friend" } }
+
+  /friends/request:
+    post:
+      tags: [Friends]
+      summary: Send a friend request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [toUsername]
+              properties:
+                toUsername: { type: string }
+      responses:
+        default: { description: Not observed. }
+
+  /friends/{id}/respond:
+    post:
+      tags: [Friends]
+      summary: Accept or decline a friend request
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string }, description: Friendship ID. }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, examples: [accept] }
+      responses:
+        default: { description: Not observed. }
+
+  /friends/{id}:
+    delete:
+      tags: [Friends]
+      summary: Remove a friend or cancel a request
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        default: { description: Not observed. }
+
+  /mail:
+    get:
+      tags: [Mail]
+      summary: Inbox
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Mail" }
+
+  /mail/unread:
+    get:
+      tags: [Mail]
+      summary: Unread count
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+
+  /mail/{recipientId}/read:
+    patch:
+      tags: [Mail]
+      summary: Mark as read
+      parameters:
+        - $ref: "#/components/parameters/recipientId"
+      responses:
+        default: { description: Not observed. }
+
+  /mail/{recipientId}/claim:
+    post:
+      tags: [Mail]
+      summary: Claim attached rewards
+      parameters:
+        - $ref: "#/components/parameters/recipientId"
+      responses:
+        default: { description: Not observed. }
+
+  /referrals/me:
+    get:
+      tags: [Referrals]
+      summary: Referral code, counts and milestones
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Referrals" }
+
+  /referrals/claim:
+    post:
+      tags: [Referrals]
+      summary: Claim a milestone reward
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [milestoneId]
+              properties:
+                milestoneId: { type: string }
+      responses:
+        default: { description: Not observed. }
+
+  /device-upgrades:
+    get:
+      tags: [Device upgrades]
+      summary: Device tech tree, purchases and coins
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceUpgrades" }
+
+  /device-upgrades/select-device:
+    post:
+      tags: [Device upgrades]
+      summary: Choose the main device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deviceId]
+              properties:
+                deviceId: { type: string }
+      responses:
+        default: { description: Not observed. }
+
+  /device-upgrades/purchase:
+    post:
+      tags: [Device upgrades]
+      summary: Buy an upgrade node
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nodeId]
+              properties:
+                nodeId: { type: string }
+      responses:
+        default: { description: Not observed. }
+
+  /device-upgrades/purchases/{id}/refund:
+    post:
+      tags: [Device upgrades]
+      summary: Refund a purchase
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        default: { description: Not observed. }
+
+  /chat/status:
+    get:
+      tags: [Chat]
+      summary: Chat access and Slack channel
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access: { type: string }
+                  channelUrl: { type: string }
+                  channelName: { type: string }
+
+  /chat/emojis:
+    get:
+      tags: [Chat]
+      summary: Search emoji names
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  emojis: { type: array, items: { type: string } }
+
+  /chat/consent:
+    post:
+      tags: [Chat]
+      summary: Accept the chat rules
+      responses:
+        default: { description: Not observed. }
+
+  /feedback/nps:
+    get:
+      tags: [Feedback]
+      summary: Whether an NPS survey is due
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  due: { type: boolean }
+    post:
+      tags: [Feedback]
+      summary: Submit an NPS rating
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rating]
+              properties:
+                rating: { type: integer }
+                feedback: { type: [string, "null"] }
+      responses:
+        default: { description: Not observed. }
+
+  /ysws/current-week:
+    get:
+      tags: [Weeks]
+      summary: The current program week
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Week" }
+
+  /ysws/week-track:
+    get:
+      tags: [Weeks]
+      summary: Week-by-week progress and rent
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WeekTrack" }
+
+  /ysws/rent-debt-notice:
+    get:
+      tags: [Weeks]
+      summary: Pending rent-debt notice
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notice: {}
+
+  /ysws/rent-debt-notice/seen:
+    post:
+      tags: [Weeks]
+      summary: Dismiss a rent-debt notice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [weekKey, stage]
+              properties:
+                weekKey: { type: string }
+                stage: {}
+      responses:
+        default: { description: Not observed. }
+
+  /ysws/services/status:
+    get:
+      tags: [Services]
+      summary: GitHub and Hackatime link status
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  github:
+                    type: object
+                    properties:
+                      linked: { type: boolean }
+                      login: { type: string }
+                  hackatime:
+                    type: object
+                    properties:
+                      linked: { type: boolean }
+                      username: { type: string }
+                      hasApiKey: { type: boolean }
+
+  /ysws/github/repos:
+    get:
+      tags: [Services]
+      summary: The user's GitHub repositories
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    fullName: { type: string }
+                    name: { type: string }
+                    owner: { type: string }
+                    description: { type: [string, "null"] }
+
+  /ysws/github/repos/{repo}/branches:
+    get:
+      tags: [Services]
+      summary: Branches of a repository
+      parameters:
+        - { name: repo, in: path, required: true, schema: { type: string } }
+      responses:
+        default: { description: Not observed. }
+
+  /ysws/hackatime/projects:
+    get:
+      tags: [Services]
+      summary: The user's Hackatime projects
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: { type: string }
+                    totalSeconds: { type: number }
+                    aiSeconds: { type: number }
+                    languages: { type: array, items: { type: string } }
+
+  /ysws/projects:
+    get:
+      tags: [Projects]
+      summary: The user's projects
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Project" }
+    post:
+      tags: [Projects]
+      summary: Create a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                isUpdate: { type: boolean }
+                parentProjectId: { type: [string, "null"] }
+      responses:
+        default: { description: Not observed. }
+
+  /ysws/projects/{projectId}:
+    parameters:
+      - $ref: "#/components/parameters/projectId"
+    get:
+      tags: [Projects]
+      summary: A project
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+    patch:
+      tags: [Projects]
+      summary: Update project fields
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        default: { description: Not observed. }
+
+  /ysws/projects/{projectId}/time:
+    get:
+      tags: [Projects]
+      summary: Hackatime time logged for the project
+      parameters:
+        - $ref: "#/components/parameters/projectId"
+        - { name: start_date, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalSeconds: { type: number }
+                  linked: { type: boolean }
+
+  /ysws/projects/{projectId}/suggest-hackatime:
+    get:
+      tags: [Projects]
+      summary: Suggested Hackatime project to link
+      parameters:
+        - $ref: "#/components/parameters/projectId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  suggestion: {}
+
+  /ysws/projects/{projectId}/commits:
+    get:
+      tags: [Projects]
+      summary: Commits available for devlogs
+      parameters:
+        - $ref: "#/components/parameters/projectId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: {} }
+
+  /ysws/projects/{projectId}/reward-estimate:
+    get:
+      tags: [Projects]
+      summary: Estimated reward for the project
+      parameters:
+        - $ref: "#/components/parameters/projectId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  water: { type: number }
+                  wholeWater: { type: number }
+                  time: {}
+                  totals:
+                    type: object
+                    properties:
+                      water: { type: number }
+
+  /ysws/projects/{projectId}/devlogs:
+    parameters:
+      - $ref: "#/components/parameters/projectId"
+    get:
+      tags: [Projects]
+      summary: Devlogs
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: {} }
+    post:
+      tags: [Projects]
+      summary: Post a devlog
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, body]
+              properties:
+                title: { type: string }
+                body: { type: string }
+                commitShas: { type: array, items: { type: string } }
+                imageIds: { type: array, items: { type: string } }
+      responses:
+        default: { description: Not observed. }
+
+  /upload/image:
+    delete:
+      tags: [Projects]
+      summary: Delete an uploaded image
+      description: Uploads go to the same path; the upload method and encoding are not confirmed.
+      parameters:
+        - { name: id, in: query, required: true, schema: { type: string } }
+      responses:
+        default: { description: Not observed. }
+
+  /ysws/projects/{projectId}/ship-check:
+    get:
+      tags: [Shipping]
+      summary: Pre-ship checks and warnings
+      parameters:
+        - $ref: "#/components/parameters/projectId"
+        - { name: platforms, in: query, schema: { type: string } }
+      responses:
+        default: { description: Not observed. }
+
+  /ysws/projects/{projectId}/ship:
+    post:
+      tags: [Shipping]
+      summary: Ship a project for review
+      parameters:
+        - $ref: "#/components/parameters/projectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [notes, aiDeclaration, platforms]
+              properties:
+                notes: { type: string }
+                aiDeclaration: { type: string }
+                platforms: { type: array, items: { type: string } }
+                acknowledgedWarnings: { type: array, items: { type: string } }
+      responses:
+        default: { description: Not observed. }
+
+  /ysws/projects/{projectId}/shipments:
+    get:
+      tags: [Shipping]
+      summary: Shipments of a project
+      parameters:
+        - $ref: "#/components/parameters/projectId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: {} }
+
+  /ysws/shipments/{shipmentId}/review:
+    get:
+      tags: [Shipping]
+      summary: Review result for a shipment
+      parameters:
+        - $ref: "#/components/parameters/shipmentId"
+      responses:
+        default: { description: Not observed. }
+
+  /ysws/shipments/{shipmentId}/reship:
+    post:
+      tags: [Shipping]
+      summary: Resubmit a shipment after changes were requested
+      parameters:
+        - $ref: "#/components/parameters/shipmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes: { type: string }
+                aiDeclaration: { type: string }
+                platforms: { type: array, items: { type: string } }
+                screenshotId: { type: string }
+                acknowledgedWarnings: { type: array, items: { type: string } }
+      responses:
+        default: { description: Not observed. }
+
+  /ysws/vote/quota:
+    get:
+      tags: [Voting]
+      summary: Votes owed and remaining
+      responses:
+        default: { description: Not observed. }
+
+  /ysws/vote/next:
+    get:
+      tags: [Voting]
+      summary: Next shipment to vote on
+      responses:
+        default: { description: Not observed. }
+
+  /ysws/vote/shipment/{shipmentId}:
+    post:
+      tags: [Voting]
+      summary: Vote on a shipment
+      parameters:
+        - $ref: "#/components/parameters/shipmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [stars, verdict, justification]
+              properties:
+                stars: { type: integer }
+                verdict: { type: string }
+                justification: { type: string }
+      responses:
+        default: { description: Not observed. }
+
+  /ysws/vote/shipment/{shipmentId}/skip:
+    post:
+      tags: [Voting]
+      summary: Skip a shipment
+      parameters:
+        - $ref: "#/components/parameters/shipmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        default: { description: Not observed. }
+
+  /.well-known/oauth-authorization-server:
+    get:
+      tags: [OAuth]
+      summary: OAuth 2.1 authorization server metadata (for MCP clients)
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  issuer: { type: string }
+                  authorization_endpoint: { type: string }
+                  token_endpoint: { type: string }
+                  registration_endpoint: { type: string }
+                  revocation_endpoint: { type: string }
+                  response_types_supported: { type: array, items: { type: string } }
+                  grant_types_supported: { type: array, items: { type: string } }
+                  code_challenge_methods_supported: { type: array, items: { type: string } }
+                  token_endpoint_auth_methods_supported: { type: array, items: { type: string } }
+                  revocation_endpoint_auth_methods_supported: { type: array, items: { type: string } }
+                  scopes_supported: { type: array, items: { type: string } }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token from `/auth/exchange`. Claims are `userId`, `username`, `tv`, `iat`, `exp`.
+
+  parameters:
+    username:
+      { name: username, in: path, required: true, schema: { type: string } }
+    projectId:
+      { name: projectId, in: path, required: true, schema: { type: string, format: uuid } }
+    shipmentId:
+      { name: shipmentId, in: path, required: true, schema: { type: string, format: uuid } }
+    recipientId:
+      { name: recipientId, in: path, required: true, schema: { type: string, format: uuid } }
+
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        code: { type: string }
+
+    Me:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        email: { type: string }
+        slackId: { type: string }
+        displayName: { type: string }
+        profilePictureUrl: { type: string }
+        roles: { type: array, items: { type: string }, examples: [[reviewer]] }
+        bannedAt: { type: [string, "null"], format: date-time }
+        yswsEligible: { type: boolean }
+        verificationStatus: { type: string }
+        isAdmin: { type: boolean }
+        identityCollected: { type: boolean }
+        githubLinked: { type: boolean }
+        githubLogin: { type: [string, "null"] }
+        hackatimeLinked: { type: boolean }
+        hackatimeUsername: { type: [string, "null"] }
+        addressLinked: { type: boolean }
+        addressCountry: { type: [string, "null"] }
+
+    AddressStatus:
+      type: object
+      properties:
+        linked: { type: boolean }
+        address:
+          type: [object, "null"]
+          properties:
+            line1: { type: string }
+            line2: { type: string }
+            city: { type: string }
+            state: { type: string }
+            postalCode: { type: string }
+            country: { type: string }
+        country: { type: string }
+        city: { type: string }
+        supportedRegion: { type: boolean, description: Whether hardware rewards ship to this region. }
+        summary: { type: string }
+
+    Profile:
+      type: object
+      properties:
+        username: { type: string }
+        displayName: { type: string }
+        slackId: { type: string }
+        coins: { type: number }
+        water: { type: number }
+        friendCount: { type: integer }
+        projects:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              title: { type: string }
+              repoFullName: { type: [string, "null"] }
+              devlogCount: { type: integer }
+        quests:
+          type: array
+          items:
+            type: object
+            properties:
+              questId: { type: string }
+              title: { type: string }
+              completed: { type: boolean }
+              totalTasks: { type: integer }
+              completedTasks: { type: integer }
+        friends:
+          type: array
+          items:
+            type: object
+            properties:
+              username: { type: string }
+              displayName: { type: string }
+
+    Friend:
+      type: object
+      properties:
+        friendshipId: { type: string }
+        userId: { type: string, format: uuid }
+        username: { type: string }
+        displayName: { type: string }
+        profilePictureUrl: { type: string }
+
+    Mail:
+      type: object
+      properties:
+        recipientId: { type: string, format: uuid }
+        messageId: { type: string, format: uuid }
+        subject: { type: string }
+        body: { type: string }
+        rewards: {}
+        sentAt: { type: string, format: date-time }
+        readAt: { type: [string, "null"], format: date-time }
+        claimedAt: { type: [string, "null"], format: date-time }
+        senderName: { type: [string, "null"] }
+        createdByUsername: { type: string }
+        createdByDisplayName: { type: string }
+        waterExpired: { type: boolean }
+
+    Referrals:
+      type: object
+      properties:
+        referralCode: { type: string }
+        shareUrl: { type: string }
+        counts:
+          type: object
+          properties:
+            joined_verified: { type: integer }
+            week_complete: { type: integer }
+        milestones:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              type: { type: string }
+              threshold: { type: integer }
+              coins: { type: number }
+              accessoryItemId: { type: string }
+              accessoryName: { type: string }
+              accessorySprite: { type: string }
+              accessoryRarity: { type: string }
+              achieved: { type: boolean }
+              claimed: { type: boolean }
+        referred: { type: array, items: {} }
+
+    DeviceUpgrades:
+      type: object
+      properties:
+        devices:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              title: { type: string }
+              description: { type: string }
+              category: { type: string }
+              root: { $ref: "#/components/schemas/Point" }
+              nodes:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string }
+                    title: { type: string }
+                    description: { type: string }
+                    price: { type: number }
+                    direction: { type: string }
+                    maxPurchases: { type: [integer, "null"] }
+                    x: { type: number }
+                    y: { type: number }
+        mainDevice: { type: string }
+        owned: { type: object }
+        purchases: { type: array, items: {} }
+        coins: { type: number }
+        address:
+          type: object
+          properties:
+            linked: { type: boolean }
+            country: { type: string }
+            supportedRegion: { type: boolean }
+
+    Point:
+      type: object
+      properties:
+        x: { type: number }
+        y: { type: number }
+
+    Week:
+      type: object
+      properties:
+        number: { type: integer }
+        label: { type: string }
+        rentRequired: { type: boolean }
+        startDate: { type: string, format: date-time }
+        endDate: { type: string, format: date-time }
+
+    WeekTrack:
+      type: object
+      properties:
+        onTrack: { type: boolean }
+        debtOut: { type: boolean }
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              number: { type: integer }
+              weekKey: { type: string }
+              label: { type: string }
+              startsAt: { type: string, format: date-time }
+              endsAt: { type: string, format: date-time }
+              rentWeek: { type: boolean }
+              state: { type: string }
+              hoursSeconds: { type: number }
+              projectTitle: { type: [string, "null"] }
+              shipState: { type: string }
+              shipped: { type: boolean }
+              approved: { type: boolean }
+              seedsClaimed: { type: boolean }
+              rentPaid: { type: boolean }
+              rentDueAt: { type: [string, "null"], format: date-time }
+              excuseReason: { type: [string, "null"] }
+              rentDebt: { type: number }
+
+    Project:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: [string, "null"] }
+        isUpdate: { type: boolean }
+        parentProjectId: { type: [string, "null"] }
+        parentProject: {}
+        screenshotUrl: { type: [string, "null"] }
+        codeUrl: { type: [string, "null"] }
+        demoUrl: { type: [string, "null"] }
+        repoOwner: { type: [string, "null"] }
+        repoName: { type: [string, "null"] }
+        repoFullName: { type: [string, "null"] }
+        repoId: {}
+        defaultBranch: { type: [string, "null"] }
+        lastDevlogHeadSha: { type: [string, "null"] }
+        hackatimeProjectName: { type: [string, "null"] }
+        what: {}
+        madeWith: { type: array, items: {} }
+        weekNumber: { type: integer }
+        programWeek:
+          type: object
+          properties:
+            weekKey: { type: string }
+            weekNumber: { type: integer }
+            label: { type: string }
+            startDate: { type: string }
+            endDate: { type: string }
+        devlogsCloseAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        deletedAt: { type: [string, "null"], format: date-time }
