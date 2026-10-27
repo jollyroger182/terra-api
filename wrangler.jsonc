@@ -4,6 +4,8 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-10-01",
   "observability": { "enabled": true },
+  "workers_dev": false,
+  "routes": [{ "pattern": "terra-api.jollyy.dev", "custom_domain": true }],
   "vars": {
     "TERRA_API_URL": "https://api.terra.hackclub.com",
     "ALLOWED_ORIGINS": "*"

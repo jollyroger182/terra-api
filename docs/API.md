@@ -13,7 +13,7 @@ The API changes with the game. Treat this as a snapshot from October 2026, not a
 | REST API | `https://api.terra.hackclub.com` |
 | Game server | `wss://game.terra.hackclub.com` (Colyseus) |
 | Web client | `https://terra.hackclub.com` |
-| CORS proxy | `https://terra-api-proxy.jollyroger182.workers.dev` (this repo) |
+| CORS proxy | `https://terra-api.jollyy.dev` (this repo) |
 
 ### Conventions
 

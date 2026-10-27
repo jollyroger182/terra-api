@@ -17,7 +17,7 @@ info:
 servers:
   - url: https://api.terra.hackclub.com
     description: Terra API (CORS restricted to https://terra.hackclub.com)
-  - url: https://terra-api-proxy.jollyroger182.workers.dev
+  - url: https://terra-api.jollyy.dev
     description: CORS proxy, callable from any origin
 security:
   - bearerAuth: []

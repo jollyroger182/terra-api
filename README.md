@@ -5,7 +5,7 @@ A small CORS proxy that lets browsers on other origins call the Terra API.
 Every request to the proxy is forwarded to the same path under `TERRA_API_URL`, and the response comes back with CORS headers added:
 
 ```
-GET https://proxy.example/users/7?page=2  ->  GET $TERRA_API_URL/users/7?page=2
+GET https://terra-api.jollyy.dev/auth/me  ->  GET $TERRA_API_URL/auth/me
 ```
 
 Unofficial documentation for the Terra API itself is in [`docs/API.md`](docs/API.md), with an OpenAPI 3.1 spec in [`docs/openapi.yaml`](docs/openapi.yaml).
@@ -65,7 +65,7 @@ docker run -p 3000:3000 terra-api-proxy
 ## Calling it from a browser
 
 ```js
-const res = await fetch("https://proxy.example/auth/me", {
+const res = await fetch("https://terra-api.jollyy.dev/auth/me", {
   headers: { Authorization: `Bearer ${token}` },
 });
 const { user } = await res.json();
