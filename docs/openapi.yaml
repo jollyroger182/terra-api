@@ -722,13 +722,39 @@ paths:
           application/json:
             schema:
               type: object
-              required: [title]
+              required: [title, isUpdate]
               properties:
-                title: { type: string }
-                isUpdate: { type: boolean }
-                parentProjectId: { type: [string, "null"] }
+                title: { type: string, minLength: 1 }
+                isUpdate:
+                  type: boolean
+                  description: Whether this project updates an earlier one.
+                parentProjectId:
+                  type: [string, "null"]
+                  description: The earlier Terra project when `isUpdate` is true; null for work made outside Terra.
+      description: |
+        The project is assigned to the current program week. A player can have only one project per
+        program week, and projects can't be deleted.
       responses:
-        default: { description: Not observed. }
+        "201":
+          description: The created project.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "400":
+          description: Validation failed, e.g. "title is required" or "isUpdate must be a boolean".
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401":
+          description: No token provided.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: You already have a project for this program week.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /ysws/projects/{projectId}:
     parameters:
@@ -745,13 +771,52 @@ paths:
     patch:
       tags: [Projects]
       summary: Update project fields
+      description: |
+        Send any subset of the fields; other fields are ignored and an empty body is a no-op. The site
+        locks `title`, `isUpdate` and `parentProjectId` once the project has shipped, unless the shipment
+        came back with changes requested. There is no route to delete a project.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { type: object }
+            schema:
+              type: object
+              properties:
+                title: { type: string, minLength: 1, maxLength: 120 }
+                description: { type: [string, "null"], maxLength: 2000 }
+                isUpdate: { type: boolean }
+                parentProjectId:
+                  type: [string, "null"]
+                  description: Must be an existing project id or null.
+                codeUrl: { type: string }
+                demoUrl:
+                  type: [string, "null"]
+                  format: uri
+                  description: Must start with https://.
+                repoFullName:
+                  type: [string, "null"]
+                  description: "`owner/name` of a linked GitHub repo; null unlinks it."
+                branch: { type: string }
+                hackatimeProjectName:
+                  type: array
+                  items: { type: string }
+                  description: Hackatime projects counted toward this project.
       responses:
-        default: { description: Not observed. }
+        "200":
+          description: The updated project.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "400":
+          description: Validation failed, e.g. "title must be between 1 and 120 characters".
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: Project not found (unknown id, or not the caller's project).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /ysws/projects/{projectId}/time:
     get:

@@ -393,8 +393,8 @@ An array of the user's projects, each shaped like the single-project response be
 
 | Method | Path | Body / response |
 | --- | --- | --- |
-| `POST` | `/ysws/projects` | `{ title, isUpdate, parentProjectId }` |
-| `PATCH` | `/ysws/projects/:id` | Partial project fields. |
+| `POST` | `/ysws/projects` | `{ title, isUpdate, parentProjectId }`. See below. |
+| `PATCH` | `/ysws/projects/:id` | Partial project fields. See below. |
 | `GET` | `/ysws/projects/:id/time` | Observed: `{ totalSeconds: number; linked: boolean }`. Optional `?start_date=`. |
 | `GET` | `/ysws/projects/:id/suggest-hackatime` | Observed: `{ suggestion: unknown \| null }` |
 | `GET` | `/ysws/projects/:id/commits` | Observed: array (empty in sample). |
@@ -402,6 +402,54 @@ An array of the user's projects, each shaped like the single-project response be
 | `GET` | `/ysws/projects/:id/devlogs` | Observed: array (empty in sample). |
 | `POST` | `/ysws/projects/:id/devlogs` | `{ title, body, commitShas: string[], imageIds: string[] }` |
 | — | `/ysws/projects/:id/screenshot` | Screenshot upload URL. Method and encoding not confirmed. |
+
+#### Creating, updating and deleting projects
+
+**Create.** `POST /ysws/projects` with:
+
+```ts
+{ title: string; isUpdate: boolean; parentProjectId: string | null }
+```
+
+`isUpdate` marks the project as an update to an earlier one. The site sends `parentProjectId` only when `isUpdate` is true and the earlier project is on Terra; for work made outside Terra it sends `null`.
+
+A successful create returns `201` with the new project, in the same shape as `GET /ysws/projects/:id`. The project is assigned to the current program week (`weekNumber`, `programWeek`), and `devlogsCloseAt` is set shortly after that week ends.
+
+**A player can have only one project per program week.** A second create in the same week returns `409 {"error":"You already have a project for this program week"}`. Because projects can't be deleted (see below), creating one uses up that week's slot for good; the existing project can still be renamed and edited.
+
+Other errors seen:
+
+- `400 {"error":"title is required"}` for a missing or empty `title`
+- `400 {"error":"isUpdate must be a boolean"}`
+- `401 {"error":"No token provided"}` without a token
+
+New projects show up in the owner's `GET /users/:username/profile`, which any logged-in player can read.
+
+**Update.** `PATCH /ysws/projects/:id` with any subset of the fields the site edits. It returns `200` with the whole updated project.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `title` | `string` | 1–120 characters. |
+| `description` | `string \| null` | At most 2000 characters. |
+| `isUpdate` | `boolean` | Sent together with `parentProjectId`. |
+| `parentProjectId` | `string \| null` | Must be an existing project id (one of the caller's, presumably) or `null`. |
+| `codeUrl` | `string` | Used when no GitHub repo is linked. |
+| `demoUrl` | `string \| null` | Must be an `https://` URL. |
+| `repoFullName` | `string \| null` | `owner/name` of a linked GitHub repo; `null` unlinks it. |
+| `branch` | `string` | Branch of the linked repo. |
+| `hackatimeProjectName` | `string[]` | Hackatime projects counted toward this project. |
+
+Fields not in this list (for example `userId` or `weekNumber`) are silently ignored, and an empty body is accepted as a no-op. Validation errors seen (`400`):
+
+- `title must be between 1 and 120 characters` (also for a non-string title)
+- `description must be at most 2000 characters` (also for a non-string description)
+- `Demo link isn't a valid URL (it should start with https://)`
+- `isUpdate must be a boolean`
+- `parentProjectId must be a project ID or null` (for an id that doesn't exist)
+
+An unknown or foreign project id gives `404 {"error":"Project not found"}`. The site locks the title and the update/parent fields once a project has shipped ("ask an admin to change it"), unless the shipment came back with changes requested.
+
+**Delete.** There is no player-facing way to delete a project. `DELETE /ysws/projects/:id` is not a route (`404 Cannot DELETE /ysws/projects/:id`, an Express HTML page), and neither are `PUT`, `POST …/delete` or `POST …/archive`. Projects carry a `deletedAt` field, so deletion appears to be a soft delete done from the admin side.
 
 #### Images
 
